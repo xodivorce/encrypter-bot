@@ -11,7 +11,7 @@ load_dotenv()
 
 # Replace with your actual bot token
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID") # Main Admin ID
+ADMIN_ID = 1350528516 # Main Admin ID
 
 sub_admins = []  # List to hold sub-admin IDs
 all_users = set()  # Set to store all unique user IDs
