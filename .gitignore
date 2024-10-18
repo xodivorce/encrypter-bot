@@ -1,0 +1,6 @@
+.env
+assets/document/*
+assets/image/*
+assets/logs/*
+assets/token/*
+assets/video/*
