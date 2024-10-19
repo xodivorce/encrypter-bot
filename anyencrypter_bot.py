@@ -2,22 +2,21 @@ import os
 import random
 import time
 from PIL import Image, ImageDraw, ImageFont
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
-
-#load .env 
-load_dotenv()
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, 
+                          CallbackContext, CallbackQueryHandler, filters, 
+                          ContextTypes)
 
 # Replace with your actual bot token
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = "7871296394:AAEkoRutVIb6In26pUxXIaopR1YnaEhlRYw"
 ADMIN_ID = 1350528516 # Main Admin ID
+PASSWORD = "911" 
 
 sub_admins = []  # List to hold sub-admin IDs
 all_users = set()  # Set to store all unique user IDs
 pending_broadcasts = {} # Store pending broadcasts with user_id as key and list of approvers as value
-pending_approvals = {}
-broadcast_requests = {}
+cooldown_users = {}# Store the cooldown state
+admin_requested_delete = {}# Store the /pass state
 # Function to generate a 6-digit token
 def generate_token():
     return ''.join(random.choices('0123456789', k=6))
@@ -81,12 +80,12 @@ async def save_file(update: Update, context):
         folder = "assets/audio/"
     elif file_type == 'img' and file_extension in ['jpg', 'jpeg', 'png', 'webp', 'ico']:
         folder = "assets/image/"
-    elif file_type == 'doc' and file_extension in ['pdf', 'docx', 'txt', 'zip', 'tar', '7z']:
+    elif file_type == 'doc' and file_extension in ['pdf', 'docx', 'txt', 'zip', 'tar', '7z', 'apk', 'xapk']:
         folder = "assets/document/"
     elif file_type == 'video' and file_extension in ['mp3','mp4', 'mkv', 'mov', 'avi']:
         folder = "assets/video/"
     else:
-        await update.message.reply_text("Unsupported file type or no file detected. Please try again.")
+        await update.message.reply_text("Unsupported file type or no file detected. Please follow the steps and try again.")
         return
 
     # Create a unique file name to prevent overwriting
@@ -123,15 +122,6 @@ async def save_file(update: Update, context):
     print(f"File '{document.file_name}' saved at {file_path} with token: {token}")
     
 
-# Command to ask the user what they want to encrypt
-async def start(update: Update, context):
-    user_id = update.effective_user.id
-    first_name = update.effective_user.first_name or "User"  # Get first name or fallback to "User"
-    all_users.add(user_id)  # Add user to the set of all users
-
-    # Welcome message with the user's first name
-    welcome_message = f"Welcome, {first_name}!\nTry to run this command: /help\nSupport: hey@xodivorce.in"
-    await update.message.reply_text(welcome_message)
 
 # Command to show available commands
 async def help_command(update: Update, context):
@@ -144,7 +134,7 @@ async def help_command(update: Update, context):
         "/add <user_id> - Add a sub-admin by user ID.\n"
         "/remove <user_id> - Remove a sub-admin by user ID.\n"
         "/delete_user_logs <user_id> - Delete specific user's logs and data.\n"
-        "/delete_all_logs - Delete all logs and data.\n"
+        "/delete_all - Delete all logs and data.\n"
         "/view_id - View your user ID and Sub-admin IDs.\n"
         "/broadcast - broadcast a message to users.\n"
     )
@@ -227,8 +217,8 @@ async def add_sub_admin(update: Update, context):
         if new_sub_admin_id not in sub_admins:
             sub_admins.append(new_sub_admin_id)
             save_sub_admins()  # Save the new sub-admin list
-            await update.message.reply_text(f"User ID {new_sub_admin_id} added as a Sub-admin.")
-            await notify_sub_admins(f"User ID {new_sub_admin_id} has been added as a Sub-admin.")
+            await update.message.reply_text(f"User ID {new_sub_admin_id} added as a Sub-admin.", parse_mode='Markdown')
+            await notify_sub_admins(f"User ID {new_sub_admin_id} has been added as a Sub-admin.", parse_mode='Markdown')
         else:
             await update.message.reply_text("This user is already a Sub-admin.")
     except ValueError:
@@ -250,8 +240,8 @@ async def remove_sub_admin(update: Update, context):
         if sub_admin_id_to_remove in sub_admins:
             sub_admins.remove(sub_admin_id_to_remove)
             save_sub_admins()  # Save the updated sub-admin list
-            await update.message.reply_text(f"User ID {sub_admin_id_to_remove} has been removed as a Sub-admin.")
-            await notify_sub_admins(f"User ID {sub_admin_id_to_remove} has been removed as a Sub-admin.")
+            await update.message.reply_text(f"User ID {sub_admin_id_to_remove} has been removed as a Sub-admin.", parse_mode='Markdown')
+            await notify_sub_admins(f"User ID {sub_admin_id_to_remove} has been removed as a Sub-admin.", parse_mode='Markdown')
         else:
             await update.message.reply_text("This user is not a Sub-admin.")
     except ValueError:
@@ -263,7 +253,7 @@ async def view_logs(update: Update, context):
     if os.path.exists(user_log_path):
         with open(user_log_path, "r") as f:
             logs = f.read()
-        await update.message.reply_text(f"Your logs:\n{logs}")
+        await update.message.reply_text(f"Your logs:\n{logs}", parse_mode='Markdown')
     else:
         await update.message.reply_text("No logs found for your user ID.")
 # Decrypt
@@ -276,7 +266,7 @@ async def decrypt(update: Update, context):
 
     # Validate token format
     if not token.isdigit() or len(token) != 6:
-        await update.message.reply_text("Invalid token format. Please provide a valid 6-digit code.")
+        await update.message.reply_text("Invalid token or format. Please provide a valid 6-digit code.")
         return
 
     # Search for the token in all user logs
@@ -331,27 +321,88 @@ async def idlogs(update: Update, context):
         if os.path.exists(user_log_path):
             with open(user_log_path, "r") as f:
                 logs = f.read()
-            await update.message.reply_text(f"Logs for user ID {target_user_id}:\n{logs}")
+            await update.message.reply_text(f"Logs for user ID {target_user_id}:\n{logs}", parse_mode='Markdown')
         else:
             await update.message.reply_text("No logs found for this user ID.")
     except ValueError:
         await update.message.reply_text("Invalid user ID format. Please provide a valid user ID.")
 
 
-# Command to clear user logs and files
-async def clear_user_logs_and_files(update: Update, context):
-    user_log_path = f"assets/logs/{update.effective_user.id}_token_info.txt"
-    user_files_folder = f"assets/user_files/{update.effective_user.id}/"
-    
-    # Delete log file
-    if os.path.exists(user_log_path):
+# Command to initiate the clearing process with confirmation
+async def clear_user_logs_and_files(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    user_log_path = f"assets/logs/{user_id}_token_info.txt"
+
+    # Check if the log file exists
+    if not os.path.exists(user_log_path):
+        await update.message.reply_text("No logs found to clear.")
+        return
+
+    # Create the confirmation buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("Yes", callback_data='clear_yes'),
+            InlineKeyboardButton("No", callback_data='clear_no')
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Ask the user to confirm deletion
+    await update.message.reply_text("Are you sure you want to delete all your logs and files you have sent to the bot?", reply_markup=reply_markup)
+
+# Callback query handler for processing the user's choice
+async def button_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    user_id = query.from_user.id
+    user_log_path = f"assets/logs/{user_id}_token_info.txt"
+
+    # Ensure the bot acknowledges the callback query
+    await query.answer()
+
+    if query.data == 'clear_yes':
+        # Read the file paths from the log file
+        with open(user_log_path, 'r') as f:
+            file_paths = f.readlines()
+        
+        # Clean up the file paths
+        file_paths = [path.strip() for path in file_paths]
+
+        # Check if the files exist in the assets folder
+        assets_folder = "assets/"
+        files_to_keep = []
+
+        # Check for existing files
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                files_to_keep.append(file_path)
+
+        # Now, delete user-specific files only if they're not in the log
+        user_files_folder = f"assets/user_files/{user_id}/"
+
+        # Check if user files folder exists and delete contents if needed
+        if os.path.exists(user_files_folder):
+            for filename in os.listdir(user_files_folder):
+                full_path = os.path.join(user_files_folder, filename)
+                # If the file is not in the user's logs, delete it
+                if full_path not in files_to_keep:
+                    os.remove(full_path)
+                    print(f"Deleted file: {full_path}")
+
+            # Optionally, you could delete the folder if it's empty after deletion
+            if not os.listdir(user_files_folder):  # Check if the directory is empty
+                os.rmdir(user_files_folder)
+                print(f"Deleted folder: {user_files_folder}")
+
+        # Finally, delete the log file
         os.remove(user_log_path)
+        print(f"Deleted log file: {user_log_path}")
+
+        await query.edit_message_text("Your logs and all unnecessary files you sent to the bot have been cleared.")
     
-    # Delete user-specific folder if exists
-    if os.path.exists(user_files_folder):
-        os.rmdir(user_files_folder)
-    
-    await update.message.reply_text("Your logs and associated files have been cleared.")
+    elif query.data == 'clear_no':
+        # If user chose 'No', cancel the deletion
+        await query.edit_message_text("Deletion process canceled.")
+
 
 # Command to delete specific user's logs
 async def delete_user_logs(update: Update, context):
@@ -367,23 +418,178 @@ async def delete_user_logs(update: Update, context):
     user_log_path = f"assets/logs/{user_id_to_delete}_token_info.txt"
     if os.path.exists(user_log_path):
         os.remove(user_log_path)
-        await update.message.reply_text(f"Logs for user ID {user_id_to_delete} have been deleted.")
+        await update.message.reply_text(f"Logs for user ID {user_id_to_delete} have been deleted.", parse_mode='Markdown')
     else:
         await update.message.reply_text("No logs found for this user ID.")
 
-# Command to delete all logs
-async def delete_all_logs(update: Update, context):
-    for filename in os.listdir("assets/logs"):
-        file_path = os.path.join("assets/logs", filename)
-        os.remove(file_path)
-    await update.message.reply_text("All logs have been deleted.")
 
-# Command to view user IDs
-async def view_ids(update: Update, context):
-    ids = f"Your User ID: {update.effective_user.id}\n"
-    ids += f"Sub-admin IDs: {sub_admins}\n"
-    ids += f"All User IDs: {list(all_users)}"  # Convert set to list for display
-    await update.message.reply_text(ids)
+
+# Store the cooldown state and a flag for delete all command
+cooldown_users = {}
+admin_requested_delete = {}
+
+# Command to initiate the clearing process
+async def delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Check if the user is the admin
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    # Ask for the password
+    await update.message.reply_text("Please send the password using /pass <password>.")
+    
+    # Set the flag indicating the admin has requested to delete
+    admin_requested_delete[user_id] = True
+
+# Command to check the password
+async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Check if the user is the admin
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    message_text = update.message.text
+
+    # Check if the command starts with /pass
+    if not message_text.startswith('/pass '):
+        return
+
+    # Check if the admin has requested the delete command
+    if user_id not in admin_requested_delete or not admin_requested_delete[user_id]:
+        await update.message.reply_text("Invalid command. Please use /delete_all first.")
+        return
+
+    # Extract the password from the message
+    input_password = message_text.split(" ")[1] if len(message_text.split(" ")) > 1 else ""
+
+    # Initialize the cooldown state for the user if it doesn't exist
+    if user_id not in cooldown_users:
+        cooldown_users[user_id] = {'attempts': 2, 'cooldown': False}
+
+    # Check cooldown state
+    if cooldown_users[user_id]['cooldown']:
+        await update.message.reply_text("You are on cooldown. Please wait 5 minutes before trying again.")
+        return
+
+    if input_password == PASSWORD:
+        # Proceed to delete all user logs and files
+        await delete_all_files(update)
+        cooldown_users[user_id]['attempts'] = 2  # Reset attempts after successful deletion
+        admin_requested_delete[user_id] = False  # Reset the delete request flag
+    else:
+        cooldown_users[user_id]['attempts'] -= 1
+        if cooldown_users[user_id]['attempts'] <= 0:
+            cooldown_users[user_id]['cooldown'] = True
+            await update.message.reply_text("Too many incorrect attempts. You are now on cooldown for 5 minutes.")
+            # Set a timer to reset the cooldown after 5 minutes
+            time.sleep(300)  # 5 minutes cooldown (300 seconds)
+            cooldown_users[user_id]['cooldown'] = False
+            cooldown_users[user_id]['attempts'] = 2  # Reset attempts after cooldown
+        else:
+            await update.message.reply_text(f"Incorrect password. You have {cooldown_users[user_id]['attempts']} attempts left.")
+
+import os
+from telegram import Update
+
+async def delete_all_files(update: Update):
+    # Define the folders to delete files from
+    folders_to_delete = [
+        "assets/document",
+        "assets/audio",
+        "assets/video",
+        "assets/image",
+        "assets/logs"
+    ]
+
+    # Files to keep during deletion
+    files_to_keep = {"all_users.txt", "sub_admins.txt"}
+
+    # Loop through each folder and delete files
+    for folder in folders_to_delete:
+        if os.path.exists(folder):
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                # Only delete if it's a file and not in the files_to_keep set
+                if os.path.isfile(file_path) and filename not in files_to_keep:
+                    os.remove(file_path)
+                    print(f"Deleted file: {file_path}")
+
+    await update.message.reply_text("All specified files have been deleted, excluding the token folder and the specified files.")
+
+
+
+# Command to view user IDs (restricted to admin and sub-admins)
+async def view_ids(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+
+    # Check if the user is admin or sub-admin
+    if user_id != ADMIN_ID and user_id not in sub_admins:
+        await update.message.reply_text("You are not authorized to view user IDs.")
+        return
+
+    # Read all user IDs from all_users.txt
+    user_log_path = "assets/logs/all_users.txt"
+    if not os.path.exists(user_log_path):
+        await update.message.reply_text("No users found.")
+        return
+    
+    with open(user_log_path, "r") as f:
+        all_users_from_file = set(f.read().splitlines())  # Use a set to ensure uniqueness
+
+    # Exclude admin and sub-admin IDs
+    ids_to_display = all_users_from_file - {str(ADMIN_ID)} - set(map(str, sub_admins))
+
+    # Create a numbered list of filtered user IDs
+    ids = f"Your User ID: `{user_id}`\n\n"
+    
+    # Check if there are sub-admins and add them to the message
+    if sub_admins:
+        ids += "Sub-admin IDs:\n"
+        for i, sub_admin_id in enumerate(sub_admins, 1):
+            ids += f"{i}. `{sub_admin_id}`\n"
+    else:
+        ids += "No sub-admins found.\n"
+
+    # Display the filtered list of user IDs
+    if ids_to_display:
+        ids += "\nAll User IDs:\n"
+        for i, user in enumerate(ids_to_display, 1):
+            ids += f"{i}. `{user}`\n"
+    else:
+        ids += "\nNo users found.\n"
+
+    # Send the formatted message
+    await update.message.reply_text(ids, parse_mode="Markdown")
+
+
+# Command to handle when the user starts interacting with the bot
+async def start(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    first_name = update.effective_user.first_name or "User"  # Get first name or fallback to "User"
+
+    # Path to all_users.txt
+    user_log_path = "assets/logs/all_users.txt"
+    
+    # Ensure the user ID is not already in the file
+    if os.path.exists(user_log_path):
+        with open(user_log_path, "r") as f:
+            existing_user_ids = set(f.read().splitlines())  # Load existing user IDs as a set for uniqueness
+    else:
+        existing_user_ids = set()
+
+    # Add the user ID to the file only if it's not already saved
+    if str(user_id) not in existing_user_ids:
+        with open(user_log_path, "a") as f:
+            f.write(f"{user_id}\n")
+
+    # Welcome message with the user's first name
+    welcome_message = f"Welcome, {first_name}!\nTry to run this command: /help\nSupport: hey@xodivorce.in"
+    await update.message.reply_text(welcome_message)
+
     
 # Command to show the bot's rules
 async def rules(update: Update, context):
@@ -398,137 +604,102 @@ async def rules(update: Update, context):
     )
     await update.message.reply_text(rules_text)
 
-    # Function to notify all users about a broadcast
-async def notify_all_users(message: str):
-    for user_id in all_users:  # Make sure `all_users` is defined elsewhere in your code
-        try:
-            await app.bot.send_message(user_id, message)
-        except Exception as e:
-            print(f"Failed to send message to User ID {user_id}: {e}")
 
-# Function to notify all sub-admins and admin about the pending broadcast
-async def notify_sub_admins(message: str):
-    for user_id in sub_admins + [ADMIN_ID]:  # Notify all sub-admins and admin
-        try:
-            await app.bot.send_message(user_id, message)
-        except Exception as e:
-            print(f"Failed to send message to User ID {user_id}: {e}")
 
-# Dictionary to keep track of pending broadcasts
-pending_broadcasts = {}
-
-# Function to handle the broadcast command
+# Function to handle broadcast requests
 async def broadcast(update: Update, context: CallbackContext):
+    """Handle the /broadcast command for admin and sub-admins."""
     user_id = update.effective_user.id
-    if user_id not in sub_admins:
-        await update.message.reply_text("You are not authorized to send a broadcast.")
-        return
-
-    if len(context.args) == 0:
-        await update.message.reply_text("Usage: /broadcast <message>\nPlease provide a message to broadcast.")
-        return
-
-    # Join the message into a single string
     message = ' '.join(context.args)
 
-    # Log the pending broadcast
-    pending_broadcasts[user_id] = message
-
-    # Function to handle the broadcast command
-async def broadcast(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
+    if not message:
+        await update.message.reply_text("Usage: /broadcast <your message>\nPlease provide a message to broadcast.")
+        return
 
     if user_id == ADMIN_ID:
-        # Admin can send broadcast directly
-        if len(context.args) == 0:
-            await update.message.reply_text("Usage: /broadcast <message>\nPlease provide a message to broadcast.")
-            return
-        
-        # Join the message into a single string
-        message = ' '.join(context.args)
-        await notify_all_users(message)
-        await update.message.reply_text(f"Admin broadcast sent: {message}")
-        return
+        # Admin sends the broadcast directly
+        await send_broadcast(context, message)
+        await update.message.reply_text("Broadcast sent successfully.")
+    elif user_id in sub_admins:
+        # Sub-admin sends a request, show approval buttons to the admin
+        pending_broadcasts[user_id] = message
 
-    if user_id not in sub_admins:
-        await update.message.reply_text("You are not authorized to send a broadcast.")
-        return
+        # Create inline buttons for Approve/Reject
+        buttons = [
+            [InlineKeyboardButton("Approve", callback_data=f"approve:{user_id}"),
+             InlineKeyboardButton("Reject", callback_data=f"reject:{user_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(buttons)
 
-    if len(context.args) == 0:
-        await update.message.reply_text("Usage: /broadcast <message>\nPlease provide a message to broadcast.")
-        return
+        await update.message.reply_text("Your broadcast request has been sent to @xodivorce(admin) for approval.")
+        admin_message = f"Sub-admin {user_id} has requested to broadcast the following message:\n\n{message}\n\nApprove or Reject the request:"
+        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_message, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("You do not have permission to broadcast messages.")
 
-    # Join the message into a single string
-    message = ' '.join(context.args)
+# Callback query handler for processing the broadcast approval/rejection
+async def button_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    user_id = query.from_user.id  # Admin or sub-admin user ID
 
-    # Log the pending broadcast
-    pending_broadcasts[user_id] = message
+    # Ensure the bot acknowledges the callback query
+    await query.answer()
 
-    # Notify admin and other sub-admins for approval
-    approval_message = (
-        f"Sub-admin ID {user_id} has requested a broadcast:\n\n"
-        f"{message}\n\n"
-        "Please approve or reject this broadcast by using\n /approve <sub_admin_id> or /reject <sub_admin_id>."
-    )
-    await notify_sub_admins(approval_message)
+    # Check if the callback query data matches "approve" or "reject"
+    action, sub_admin_id = query.data.split(':')  # Split the callback data, which is 'approve:<sub_admin_id>' or 'reject:<sub_admin_id>'
+    sub_admin_id = int(sub_admin_id)
 
-    await update.message.reply_text("Your broadcast request has been submitted for approval.")
-
-# Function to approve the broadcast
-async def approve_broadcast(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in sub_admins and user_id != ADMIN_ID:
-        await update.message.reply_text("You are not authorized to approve broadcasts.")
-        return
-
-    if len(context.args) == 0:
-        await update.message.reply_text("Usage: /approve <sub_admin_id>\nPlease provide the Sub-admin ID of the broadcast request.")
-        return
-
-    try:
-        sub_admin_id = int(context.args[0])
+    if action == 'approve':
+        # Approve the broadcast
         if sub_admin_id in pending_broadcasts:
-            message = pending_broadcasts.pop(sub_admin_id)  # Remove the request from pending
-            
-            # Send the message to all users
-            await notify_all_users(message)
+            # Get the message from pending broadcasts
+            message = pending_broadcasts[sub_admin_id]
 
-            # Notify the sub-admin that their broadcast has been approved
-            approval_notification = (
-                f"Your broadcast request has been approved and sent to all users:\n\n"
-                f"{message}"
-            )
-            await app.bot.send_message(chat_id=sub_admin_id, text=approval_notification)
+            # Broadcast the message to all users
+            await send_broadcast(context, message)
 
-            await update.message.reply_text(f"Broadcast approved and sent: {message}")
+            # Inform the sub-admin about the approval
+            await context.bot.send_message(chat_id=sub_admin_id, text="Your broadcast request has been approved and sent to all users.")
+
+            # Remove the broadcast request from the pending list
+            del pending_broadcasts[sub_admin_id]
+
+            # Update the message for the admin
+            await query.edit_message_text(f"Broadcast from sub-admin {sub_admin_id} approved and sent to all users.", parse_mode='Markdown')
         else:
-            await update.message.reply_text("No pending broadcast request found for this Sub-admin ID.")
-    except ValueError:
-        await update.message.reply_text("Invalid Sub-admin ID format. Please provide a valid user ID.")
+            await query.edit_message_text(f"No pending broadcast request found for sub-admin {sub_admin_id}.", parse_mode='Markdown')
 
-
-# Function to reject the broadcast
-async def reject_broadcast(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in sub_admins and user_id != ADMIN_ID:
-        await update.message.reply_text("You are not authorized to reject broadcasts.")
-        return
-
-    if len(context.args) == 0:
-        await update.message.reply_text("Usage: /reject <sub_admin_id>\nPlease provide the Sub-admin ID of the broadcast request.")
-        return
-
-    try:
-        sub_admin_id = int(context.args[0])
+    elif action == 'reject':
+        # Reject the broadcast
         if sub_admin_id in pending_broadcasts:
-            message = pending_broadcasts.pop(sub_admin_id)  # Remove the request from pending
-            await update.message.reply_text(f"Broadcast request from Sub-admin ID {sub_admin_id} has been rejected.")
-            # Notify the sub-admin about rejection
-            await app.bot.send_message(chat_id=sub_admin_id, text="Your broadcast request has been rejected.")
+            # Inform the sub-admin about the rejection
+            await context.bot.send_message(chat_id=sub_admin_id, text="Your broadcast request has been rejected.", parse_mode='Markdown')
+
+            # Remove the broadcast request from the pending list
+            del pending_broadcasts[sub_admin_id]
+
+            # Update the message for the admin
+            await query.edit_message_text(f"Broadcast from sub-admin {sub_admin_id} rejected.", parse_mode='Markdown')
         else:
-            await update.message.reply_text("No pending broadcast request found for this Sub-admin ID.")
-    except ValueError:
-        await update.message.reply_text("Invalid Sub-admin ID format. Please provide a valid user ID.")
+            await query.edit_message_text(f"No pending broadcast request found for sub-admin {sub_admin_id}.", parse_mode='Markdown')
+
+# Function to send broadcast to all users
+async def send_broadcast(context: CallbackContext, message: str):
+    """Send a broadcast message to all users listed in the logs."""
+    user_ids = []
+    try:
+        # Load user IDs from the log file
+        with open('assets/logs/all_users.txt', 'r') as file:
+            user_ids = [line.strip() for line in file.readlines()]
+    except FileNotFoundError:
+        return
+
+    # Send the message to each user
+    for user_id in user_ids:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=message)
+        except Exception:
+            pass  # Continue even if some messages fail to send
 
 # Main function to start the bot
 if __name__ == "__main__":
@@ -537,11 +708,11 @@ if __name__ == "__main__":
 
     # Command handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("clear", clear_user_logs_and_files))
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("help", help_command))  # Add help command
     app.add_handler(CommandHandler("rules", rules))  # Add rules command
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler("approve", approve_broadcast))
-    app.add_handler(CommandHandler("reject", reject_broadcast))
+    app.add_handler(CommandHandler("broadcast", broadcast)) # Handle approve/reject buttons
     app.add_handler(CommandHandler("img", lambda update, context: context.user_data.__setitem__('file_type', 'img') or update.message.reply_text("Please send the image file:\n1. Ping (📎) icon.\n2. Select 'File'.\n3. Send the img file (.png, .jpg, .webp, .jpeg, .ico).\n4. Image must be under 20mb (lesser the file size, faster the encrypt).")))
     app.add_handler(CommandHandler("audio", lambda update, context: context.user_data.__setitem__('file_type', 'audio') or update.message.reply_text("Please send the audio file.\n1. Ping (📎) icon.\n2. Select 'File'.\n3. Send the audio file (.mp3, .mp4, .wav, .mov, .aac).\n4. Doc must be under 20mb (lesser the file size, faster the encrypt).")))
     app.add_handler(CommandHandler("doc", lambda update, context: context.user_data.__setitem__('file_type', 'doc') or update.message.reply_text("Please send the doc file.\n1. Ping (📎) icon.\n2. Select 'File'.\n3. Send the doc file (.pdf, .docx, .txt, .zip, .tar, .7z).\n4. Doc must be under 20mb (lesser the file size, faster the encrypt).")))
@@ -552,8 +723,9 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("logs", view_logs))
     app.add_handler(CommandHandler("idlogs", idlogs))
     app.add_handler(CommandHandler("clear", clear_user_logs_and_files))
-    app.add_handler(CommandHandler("delete_user_logs", delete_user_logs))
-    app.add_handler(CommandHandler("delete_all_logs", delete_all_logs))
+    app.add_handler(CommandHandler('delete_all', delete_all))
+    app.add_handler(CommandHandler('pass', check_password))
+    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("view_id", view_ids))
     app.add_handler(MessageHandler(filters.Document.ALL, save_file))
 
