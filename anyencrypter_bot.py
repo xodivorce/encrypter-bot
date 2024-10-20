@@ -1,6 +1,7 @@
 import os
 import random
 import time
+import shutil
 from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, 
@@ -61,11 +62,15 @@ def write_token_on_image(token, file_name):
 async def save_file(update: Update, context):
     file_type = context.user_data.get('file_type')
 
-    # Ensure the assets and subfolders exist
-    os.makedirs("assets/image", exist_ok=True)
-    os.makedirs("assets/audio", exist_ok=True)
-    os.makedirs("assets/video", exist_ok=True)
-    os.makedirs("assets/document", exist_ok=True)
+    # Get user ID
+    user_id = update.effective_user.id
+
+    # Ensure user-specific folders exist for each file type
+    base_folder = f"assets/{user_id}"
+    os.makedirs(f"{base_folder}/image", exist_ok=True)
+    os.makedirs(f"{base_folder}/audio", exist_ok=True)
+    os.makedirs(f"{base_folder}/video", exist_ok=True)
+    os.makedirs(f"{base_folder}/document", exist_ok=True)
 
     # Get the file object
     document = update.message.document
@@ -75,15 +80,15 @@ async def save_file(update: Update, context):
 
     file_extension = document.file_name.split('.')[-1].lower()
 
-    # Check file type and save in the correct folder
+    # Check file type and save in the correct user-specific folder
     if file_type == 'audio' and file_extension in ['mp3', 'mp4', 'wav', 'aac']:
-        folder = "assets/audio/"
+        folder = f"{base_folder}/audio/"
     elif file_type == 'img' and file_extension in ['jpg', 'jpeg', 'png', 'webp', 'ico']:
-        folder = "assets/image/"
+        folder = f"{base_folder}/image/"
     elif file_type == 'doc' and file_extension in ['pdf', 'docx', 'txt', 'zip', 'tar', '7z', 'apk', 'xapk']:
-        folder = "assets/document/"
+        folder = f"{base_folder}/document/"
     elif file_type == 'video' and file_extension in ['mp3','mp4', 'mkv', 'mov', 'avi']:
-        folder = "assets/video/"
+        folder = f"{base_folder}/video/"
     else:
         await update.message.reply_text("Unsupported file type or no file detected. Please follow the steps and try again.")
         return
@@ -111,15 +116,19 @@ async def save_file(update: Update, context):
     # Generate token image with file name
     write_token_on_image(token, document.file_name)
 
-    # Save token and file name to a text file (user-specific)
-    user_log_path = f"assets/logs/{update.effective_user.id}_token_info.txt"
+    # Save token and file name to a global text file in assets/logs
+    # Save token and file name to a global text file in assets/logs
+    user_log_path = f"assets/logs/{user_id}_token_info.txt"
     with open(user_log_path, "a") as f:
         f.write(f"{document.file_name}: {token}\n")
+
+
 
     # Send the token image to the user and a clickable token message
     await update.message.reply_photo(open("assets/token/token_with_code.jpg", "rb"), caption=f"Your token is: `{token}`", parse_mode='Markdown')
 
     print(f"File '{document.file_name}' saved at {file_path} with token: {token}")
+
     
 
 
@@ -133,7 +142,7 @@ async def help_command(update: Update, context):
         "/clear - Clear your logs and associated files.\n"
         "/add <user_id> - Add a sub-admin by user ID.\n"
         "/remove <user_id> - Remove a sub-admin by user ID.\n"
-        "/delete_user_logs <user_id> - Delete specific user's logs and data.\n"
+        "/delete_user <user_id> - Delete specific user's logs and data.\n"
         "/delete_all - Delete all logs and data.\n"
         "/view_id - View your user ID and Sub-admin IDs.\n"
         "/broadcast - broadcast a message to users.\n"
@@ -161,7 +170,7 @@ async def help_command(update: Update, context):
             "/logs - View your logs.\n"
             "/idlogs - View users logs.\n"
             "/clear - Clear your logs and associated files.\n"
-            "/delete_user_logs <user_id> - Delete specific user's logs and data.\n"
+            "/delete_user <user_id> - Delete specific user's logs and data.\n"
             "/view_id - View your user ID and Sub-admin IDs.\n"
             "/broadcast - broadcast a message to users.\n"
         )
@@ -183,13 +192,13 @@ async def help_command(update: Update, context):
 # Load sub-admins from file
 def load_sub_admins():
     global sub_admins
-    if os.path.exists("assets/logs/sub_admins.txt"):
-        with open("assets/logs/sub_admins.txt", "r") as f:
+    if os.path.exists("assets/admin/sub_admins.txt"):
+        with open("assets/admin/sub_admins.txt", "r") as f:
             sub_admins = [int(line.strip()) for line in f.readlines() if line.strip().isdigit()]
 
 # Save sub-admins to file
 def save_sub_admins():
-    with open("assets/logs/sub_admins.txt", "w") as f:
+    with open("assets/admin/sub_admins.txt", "w") as f:
         for admin_id in sub_admins:
             f.write(f"{admin_id}\n")
 
@@ -256,6 +265,8 @@ async def view_logs(update: Update, context):
         await update.message.reply_text(f"Your logs:\n{logs}", parse_mode='Markdown')
     else:
         await update.message.reply_text("No logs found for your user ID.")
+
+
 # Decrypt
 async def decrypt(update: Update, context):
     if len(context.args) == 0:
@@ -269,15 +280,11 @@ async def decrypt(update: Update, context):
         await update.message.reply_text("Invalid token or format. Please provide a valid 6-digit code.")
         return
 
-    # Search for the token in all user logs
+    # Search for the token in the global logs
     found = False
-    for user_id in os.listdir("assets/logs"):  # Check all user log files
-        user_log_path = f"assets/logs/{user_id}"
-        
-        # Skip any non-txt files (e.g., directories or unrelated files)
-        if not user_log_path.endswith("_token_info.txt"):
-            continue
-        
+    for user_log_file in os.listdir("assets/logs"):  # Check all log files in assets/logs
+        user_log_path = os.path.join("assets/logs", user_log_file)
+
         with open(user_log_path, "r") as f:
             lines = f.readlines()
             for line in lines:
@@ -286,12 +293,13 @@ async def decrypt(update: Update, context):
                 file_token = file_token.strip()
 
                 if file_token == token:
-                    # File associated with the token is found
                     found = True
+                    # Extract the user_id from the log file name
+                    user_id = user_log_file.split("_")[0]
 
-                    # Check all folders to locate the file
-                    for folder in ['assets/image', 'assets/audio', 'assets/video', 'assets/document']:
-                        file_path = os.path.join(folder, file_name)
+                    # Check user-specific folders to locate the file
+                    for folder in ['image', 'audio', 'video', 'document']:
+                        file_path = os.path.join(f"assets/{user_id}/{folder}", file_name)
                         if os.path.exists(file_path):
                             # Send the file to the user who requested it
                             await update.message.reply_text("File found. Sending the file to you now.")
@@ -300,6 +308,8 @@ async def decrypt(update: Update, context):
 
     if not found:
         await update.message.reply_text("Invalid code or file not found. Please try again.")
+
+
 
 # Command to view logs of a specific user
 async def idlogs(update: Update, context):
@@ -321,204 +331,183 @@ async def idlogs(update: Update, context):
         if os.path.exists(user_log_path):
             with open(user_log_path, "r") as f:
                 logs = f.read()
-            await update.message.reply_text(f"Logs for user ID {target_user_id}:\n{logs}", parse_mode='Markdown')
+            await update.message.reply_text(f"Logs for user ID {target_user_id}:\n{logs}")
         else:
             await update.message.reply_text("No logs found for this user ID.")
     except ValueError:
         await update.message.reply_text("Invalid user ID format. Please provide a valid user ID.")
 
 
-# Command to initiate the clearing process with confirmation
-async def clear_user_logs_and_files(update: Update, context: CallbackContext):
+# Command to inform the user about how to clear their logs
+async def clear_user_logs_and_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_log_path = f"assets/logs/{user_id}_token_info.txt"
+    await update.message.reply_text(
+        f"Your User ID: {user_id}\n"
+        f"To delete your logs and files, please send the command:\n"
+        f"`/pass {user_id}/anyencrypter`", 
+        parse_mode='MarkdownV2'  # Enable Markdown for formatting
+    )
 
-    # Check if the log file exists
-    if not os.path.exists(user_log_path):
-        await update.message.reply_text("No logs found to clear.")
+# Command to handle the deletion process
+async def handle_pass_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    command_args = context.args
+
+    # Check if the command starts with /pass and has only one argument (the user ID)
+    if len(command_args) != 1 or '/' not in command_args[0]:
+        await update.message.reply_text("Invalid command format. Please use /pass <user_id>/anyencrypter to delete.")
         return
 
-    # Create the confirmation buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("Yes", callback_data='clear_yes'),
-            InlineKeyboardButton("No", callback_data='clear_no')
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Split the user_id and the keyword
+    user_id, keyword = command_args[0].split('/')
 
-    # Ask the user to confirm deletion
-    await update.message.reply_text("Are you sure you want to delete all your logs and files you have sent to the bot?", reply_markup=reply_markup)
-
-# Callback query handler for processing the user's choice
-async def button_handler(update: Update, context: CallbackContext):
-    query = update.callback_query
-    user_id = query.from_user.id
-    user_log_path = f"assets/logs/{user_id}_token_info.txt"
-
-    # Ensure the bot acknowledges the callback query
-    await query.answer()
-
-    if query.data == 'clear_yes':
-        # Read the file paths from the log file
-        with open(user_log_path, 'r') as f:
-            file_paths = f.readlines()
-        
-        # Clean up the file paths
-        file_paths = [path.strip() for path in file_paths]
-
-        # Check if the files exist in the assets folder
-        assets_folder = "assets/"
-        files_to_keep = []
-
-        # Check for existing files
-        for file_path in file_paths:
-            if os.path.exists(file_path):
-                files_to_keep.append(file_path)
-
-        # Now, delete user-specific files only if they're not in the log
-        user_files_folder = f"assets/user_files/{user_id}/"
-
-        # Check if user files folder exists and delete contents if needed
-        if os.path.exists(user_files_folder):
-            for filename in os.listdir(user_files_folder):
-                full_path = os.path.join(user_files_folder, filename)
-                # If the file is not in the user's logs, delete it
-                if full_path not in files_to_keep:
-                    os.remove(full_path)
-                    print(f"Deleted file: {full_path}")
-
-            # Optionally, you could delete the folder if it's empty after deletion
-            if not os.listdir(user_files_folder):  # Check if the directory is empty
-                os.rmdir(user_files_folder)
-                print(f"Deleted folder: {user_files_folder}")
-
-        # Finally, delete the log file
-        os.remove(user_log_path)
-        print(f"Deleted log file: {user_log_path}")
-
-        await query.edit_message_text("Your logs and all unnecessary files you sent to the bot have been cleared.")
-    
-    elif query.data == 'clear_no':
-        # If user chose 'No', cancel the deletion
-        await query.edit_message_text("Deletion process canceled.")
-
-
-# Command to delete specific user's logs
-async def delete_user_logs(update: Update, context):
-    user_id_to_delete = int(context.args[0]) if context.args else None
-    if user_id_to_delete is None:
-        await update.message.reply_text("Usage: /delete_user_logs <userid>\nPlease provide a user ID to delete their logs.")
+    # Ensure the keyword matches "anyencrypter"
+    if keyword != "anyencrypter":
+        await update.message.reply_text("Invalid command. Please use /pass <user_id>/anyencrypter to delete.")
         return
 
-    if user_id_to_delete == ADMIN_ID or user_id_to_delete in sub_admins:
-        await update.message.reply_text("You cannot delete logs for the admin or sub-admins.")
+    # Get the ID of the user sending the command
+    sending_user_id = update.effective_user.id
+
+    # Check if the provided user ID matches the sending user's ID
+    if str(sending_user_id) != user_id:
+        await update.message.reply_text("User ID does not match. Please use the correct User ID to delete.")
         return
 
-    user_log_path = f"assets/logs/{user_id_to_delete}_token_info.txt"
+    # Define the paths for the user folder and log file
+    user_log_path = f"assets/logs/{user_id}_token_info.txt"  # Log file path
+    user_folder_path = f"assets/{user_id}/"  # User folder path
+
+    # Check if the user folder or log file exists
+    if not os.path.exists(user_folder_path) and not os.path.exists(user_log_path):
+        await update.message.reply_text("Your logs and all files are already cleared.")
+        return
+
+    # If the user folder exists, delete the files within it
+    if os.path.exists(user_folder_path):
+        for folder in ['image', 'audio', 'video', 'document']:
+            folder_path = os.path.join(user_folder_path, folder)
+            if os.path.exists(folder_path):
+                for filename in os.listdir(folder_path):
+                    file_path = os.path.join(folder_path, filename)
+                    os.remove(file_path)  # Remove each file
+                    
+
+                # Remove folder if it is empty
+                if not os.listdir(folder_path):
+                    os.rmdir(folder_path)
+                    
+        # Delete the user's main folder if it is empty
+        if not os.listdir(user_folder_path):
+            os.rmdir(user_folder_path)
+            
+    # Delete the log file if it exists
     if os.path.exists(user_log_path):
         os.remove(user_log_path)
-        await update.message.reply_text(f"Logs for user ID {user_id_to_delete} have been deleted.", parse_mode='Markdown')
+       
+    await update.message.reply_text("Your logs and all files you sent to the bot have been cleared.")
+
+
+
+
+
+async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID and user_id not in sub_admins:
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: /delete_user <user_id>")
+        return
+
+    target_user_id = context.args[0]
+    user_folder = os.path.join("assets", target_user_id)
+    logs_folder = "assets/logs"
+    user_log_file = f"{target_user_id}_token_info.txt"
+    user_log_path = os.path.join(logs_folder, user_log_file)
+
+    # Delete user folder if it exists
+    if os.path.isdir(user_folder):
+        shutil.rmtree(user_folder)
+        await update.message.reply_text(f"Deleted user folder: {user_folder}")
     else:
-        await update.message.reply_text("No logs found for this user ID.")
+        await update.message.reply_text(f"No folder found for user ID: {target_user_id}")
+
+    # Delete user log file if it exists
+    if os.path.exists(user_log_path):
+        os.remove(user_log_path)
+        await update.message.reply_text(f"Deleted log file: {user_log_path}")
+    else:
+        await update.message.reply_text(f"No log or file found for user ID: {target_user_id}")
 
 
+  
 
-# Store the cooldown state and a flag for delete all command
-cooldown_users = {}
 admin_requested_delete = {}
 
-# Command to initiate the clearing process
 async def delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Check if the user is the admin
     if user_id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
-    # Ask for the password
-    await update.message.reply_text("Please send the password using /pass <password>.")
-    
-    # Set the flag indicating the admin has requested to delete
+    await update.message.reply_text("Please send the password using /mode <password>.")
     admin_requested_delete[user_id] = True
 
-# Command to check the password
 async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Check if the user is the admin
     if user_id != ADMIN_ID:
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     message_text = update.message.text
 
-    # Check if the command starts with /pass
-    if not message_text.startswith('/pass '):
+    # Debugging line
+    print(f"Received command from user_id: {user_id}, message: {message_text}")
+
+    if not message_text.startswith('/mode '):
+        await update.message.reply_text("Invalid command format. Please use /mode <password>.")
         return
 
-    # Check if the admin has requested the delete command
     if user_id not in admin_requested_delete or not admin_requested_delete[user_id]:
         await update.message.reply_text("Invalid command. Please use /delete_all first.")
         return
 
-    # Extract the password from the message
     input_password = message_text.split(" ")[1] if len(message_text.split(" ")) > 1 else ""
 
-    # Initialize the cooldown state for the user if it doesn't exist
-    if user_id not in cooldown_users:
-        cooldown_users[user_id] = {'attempts': 2, 'cooldown': False}
-
-    # Check cooldown state
-    if cooldown_users[user_id]['cooldown']:
-        await update.message.reply_text("You are on cooldown. Please wait 5 minutes before trying again.")
-        return
-
     if input_password == PASSWORD:
-        # Proceed to delete all user logs and files
         await delete_all_files(update)
-        cooldown_users[user_id]['attempts'] = 2  # Reset attempts after successful deletion
-        admin_requested_delete[user_id] = False  # Reset the delete request flag
+        admin_requested_delete[user_id] = False
     else:
-        cooldown_users[user_id]['attempts'] -= 1
-        if cooldown_users[user_id]['attempts'] <= 0:
-            cooldown_users[user_id]['cooldown'] = True
-            await update.message.reply_text("Too many incorrect attempts. You are now on cooldown for 5 minutes.")
-            # Set a timer to reset the cooldown after 5 minutes
-            time.sleep(300)  # 5 minutes cooldown (300 seconds)
-            cooldown_users[user_id]['cooldown'] = False
-            cooldown_users[user_id]['attempts'] = 2  # Reset attempts after cooldown
-        else:
-            await update.message.reply_text(f"Incorrect password. You have {cooldown_users[user_id]['attempts']} attempts left.")
-
-import os
-from telegram import Update
+        await update.message.reply_text("Incorrect password. Please try again.")
 
 async def delete_all_files(update: Update):
-    # Define the folders to delete files from
-    folders_to_delete = [
-        "assets/document",
-        "assets/audio",
-        "assets/video",
-        "assets/image",
-        "assets/logs"
-    ]
+    # Path to the assets folder
+    assets_folder = "assets"
+    
+    # Loop through all folders in 'assets' and delete everything except 'token', 'admin', and 'logs'
+    for folder in os.listdir(assets_folder):
+        folder_path = os.path.join(assets_folder, folder)
+        if os.path.isdir(folder_path) and folder not in ["token", "admin", "logs"]:
+            shutil.rmtree(folder_path)  # Delete the entire folder
+            print(f"Deleted folder: {folder_path}")
+    
+    # Clear files inside 'assets/logs', but keep the folder
+    logs_folder = os.path.join(assets_folder, "logs")
+    if os.path.exists(logs_folder):
+        for filename in os.listdir(logs_folder):
+            file_path = os.path.join(logs_folder, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)  # Delete each file
+                print(f"Deleted log file: {file_path}")
+    
+    await update.message.reply_text("All folders and log files have been deleted, except for 'token', 'admin', and the 'logs' folder.")
 
-    # Files to keep during deletion
-    files_to_keep = {"all_users.txt", "sub_admins.txt"}
 
-    # Loop through each folder and delete files
-    for folder in folders_to_delete:
-        if os.path.exists(folder):
-            for filename in os.listdir(folder):
-                file_path = os.path.join(folder, filename)
-                # Only delete if it's a file and not in the files_to_keep set
-                if os.path.isfile(file_path) and filename not in files_to_keep:
-                    os.remove(file_path)
-                    print(f"Deleted file: {file_path}")
 
-    await update.message.reply_text("All specified files have been deleted, excluding the token folder and the specified files.")
+
 
 
 
@@ -532,7 +521,7 @@ async def view_ids(update: Update, context: CallbackContext):
         return
 
     # Read all user IDs from all_users.txt
-    user_log_path = "assets/logs/all_users.txt"
+    user_log_path = "assets/admin/all_users.txt"
     if not os.path.exists(user_log_path):
         await update.message.reply_text("No users found.")
         return
@@ -572,7 +561,7 @@ async def start(update: Update, context: CallbackContext):
     first_name = update.effective_user.first_name or "User"  # Get first name or fallback to "User"
 
     # Path to all_users.txt
-    user_log_path = "assets/logs/all_users.txt"
+    user_log_path = "assets/admin/all_users.txt"
     
     # Ensure the user ID is not already in the file
     if os.path.exists(user_log_path):
@@ -691,7 +680,7 @@ async def send_broadcast(context: CallbackContext, message: str):
     user_ids = []
     try:
         # Load user IDs from the log file
-        with open('assets/logs/all_users.txt', 'r') as file:
+        with open('assets/admin/all_users.txt', 'r') as file:
             user_ids = [line.strip() for line in file.readlines()]
     except FileNotFoundError:
         return
@@ -710,7 +699,6 @@ if __name__ == "__main__":
 
     # Command handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("clear", clear_user_logs_and_files))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("help", help_command))  # Add help command
     app.add_handler(CommandHandler("rules", rules))  # Add rules command
@@ -725,10 +713,14 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("logs", view_logs))
     app.add_handler(CommandHandler("idlogs", idlogs))
     app.add_handler(CommandHandler("clear", clear_user_logs_and_files))
-    app.add_handler(CommandHandler('delete_all', delete_all))
+    app.add_handler(CommandHandler("pass", handle_pass_command))
+    app.add_handler(CommandHandler('delete_user', delete_user))
+    app.add_handler(CommandHandler("delete_all", delete_all))
+    app.add_handler(CommandHandler("mode", check_password))
     app.add_handler(CommandHandler('pass', check_password))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(CommandHandler("view_id", view_ids))
     app.add_handler(MessageHandler(filters.Document.ALL, save_file))
+    
 
     app.run_polling()
