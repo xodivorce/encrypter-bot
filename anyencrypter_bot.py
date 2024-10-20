@@ -262,7 +262,7 @@ async def view_logs(update: Update, context):
     if os.path.exists(user_log_path):
         with open(user_log_path, "r") as f:
             logs = f.read()
-        await update.message.reply_text(f"Your logs:\n{logs}", parse_mode='Markdown')
+        await update.message.reply_text(f"Your logs:\n{logs}")
     else:
         await update.message.reply_text("No logs found for your user ID.")
 
