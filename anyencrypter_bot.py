@@ -587,20 +587,22 @@ async def start(update: Update, context: CallbackContext):
             f.write(f"{user_id}\n")
 
     # Welcome message with the user's first name
-    welcome_message = f"Welcome, {first_name}!\nTry to run this command: /help\nSupport: hey@xodivorce.in"
+    welcome_message = f"Welcome, {first_name}!\nTry to run this command: /help\nReview the rules: /rules\nSupport: hey@xodivorce.in"
     await update.message.reply_text(welcome_message)
 
     
 # Command to show the bot's rules
 async def rules(update: Update, context):
     rules_text = (
-        "Welcome to @anyencrypter_bot, Here are the rules to follow:\n"
-        "1. Only send files in supported formats.\n"
-        "2. Ensure files are under the specified size limit (20MB).\n"
-        "3. Respect the privacy of other users and do not share their private information.\n"
-        "4. Do not spam the bot with repeated requests.\n"
-        "5. Follow all commands as instructed.\n"
-        "6. For any issues, mail to: hey@xodivorce.in.\n"
+        "Welcome to @anyencrypter_bot! Please adhere to the following rules:\n\n"
+        "1. Send only supported file formats.\n"
+        "2. File size must not exceed 20MB.\n"
+        "3. Avoid spamming repeated requests.\n"
+        "4. Follow commands as instructed.\n"
+        "5. Files are deleted after 30 days. Contact hey@xodivorce.in for paid plans to retain them.\n"
+        "6. The bot operates daily from 12 PM to 3 AM IST.\n"
+        "7. If the bot is offline, send the command and it will process while active.\n"
+        "8. For issues, contact: hey@xodivorce.in.\n"
     )
     await update.message.reply_text(rules_text)
 
@@ -613,7 +615,7 @@ async def broadcast(update: Update, context: CallbackContext):
     message = ' '.join(context.args)
 
     if not message:
-        await update.message.reply_text("Usage: /broadcast <your message>\nPlease provide a message to broadcast.")
+        await update.message.reply_text("Usage: /broadcast <your message>\nPlease provide a message to broadcast.", parse_mode='Markdown')
         return
 
     if user_id == ADMIN_ID:
@@ -631,7 +633,7 @@ async def broadcast(update: Update, context: CallbackContext):
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
 
-        await update.message.reply_text("Your broadcast request has been sent to @xodivorce(admin) for approval.")
+        await update.message.reply_text("Your broadcast request has been sent to @xodivorce(admin) for approval.", parse_mode='Markdown')
         admin_message = f"Sub-admin {user_id} has requested to broadcast the following message:\n\n{message}\n\nApprove or Reject the request:"
         await context.bot.send_message(chat_id=ADMIN_ID, text=admin_message, reply_markup=reply_markup)
     else:
@@ -659,7 +661,7 @@ async def button_handler(update: Update, context: CallbackContext):
             await send_broadcast(context, message)
 
             # Inform the sub-admin about the approval
-            await context.bot.send_message(chat_id=sub_admin_id, text="Your broadcast request has been approved and sent to all users.")
+            await context.bot.send_message(chat_id=sub_admin_id, text="Your broadcast request has been approved and sent to all users.", parse_mode='Markdown')
 
             # Remove the broadcast request from the pending list
             del pending_broadcasts[sub_admin_id]
